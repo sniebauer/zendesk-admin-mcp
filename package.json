@@ -1,0 +1,40 @@
+{
+  "name": "@sniebauer/zendesk-admin-mcp",
+  "version": "0.1.0",
+  "description": "Admin/config MCP server for Zendesk Support — triggers, automations, macros, views, SLAs, groups, fields, forms, webhooks, audit logs. For Claude Desktop and Claude Code.",
+  "type": "module",
+  "bin": {
+    "zendesk-admin-mcp": "dist/index.js"
+  },
+  "files": ["dist", "README.md", "LICENSE", ".env.example"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "setup": "node dist/index.js setup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "tsx scripts/smoke.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": ["mcp", "model-context-protocol", "zendesk", "zendesk-admin", "claude", "claude-desktop", "claude-code"],
+  "author": "Steve Niebauer",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/sniebauer/zendesk-admin-mcp.git" },
+  "homepage": "https://github.com/sniebauer/zendesk-admin-mcp#readme",
+  "bugs": { "url": "https://github.com/sniebauer/zendesk-admin-mcp/issues" },
+  "publishConfig": { "access": "public" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "node-zendesk": "^5.0.13",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
