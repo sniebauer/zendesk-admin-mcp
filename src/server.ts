@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerBusinessRuleTools } from "./tools/business-rules.js";
 import { registerTicketingTools } from "./tools/ticketing.js";
+import { registerAuditTools } from "./tools/audit.js";
 
 export function createServer(): McpServer {
   const server = new McpServer({
@@ -10,6 +11,7 @@ export function createServer(): McpServer {
 
   registerBusinessRuleTools(server);
   registerTicketingTools(server);
+  registerAuditTools(server);
 
   return server;
 }
