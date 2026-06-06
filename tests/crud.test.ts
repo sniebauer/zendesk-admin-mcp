@@ -46,3 +46,16 @@ describe("makeCrudSchemas (string id)", () => {
     expect(s.getInput.parse({ id: "abc123" })).toEqual({ id: "abc123" });
   });
 });
+
+import { reorderTriggersInput } from "../src/tools/business-rules.js";
+
+describe("reorderTriggersInput", () => {
+  it("requires a non-empty array of positive integer ids and defaults require_confirm false", () => {
+    expect(() => reorderTriggersInput.parse({ trigger_ids: [] })).toThrow();
+    expect(() => reorderTriggersInput.parse({ trigger_ids: [0] })).toThrow();
+    expect(reorderTriggersInput.parse({ trigger_ids: [3, 1, 2] })).toEqual({
+      trigger_ids: [3, 1, 2],
+      require_confirm: false,
+    });
+  });
+});
