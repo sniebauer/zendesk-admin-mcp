@@ -1,14 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createZendeskClient, withZendeskError, loadConfig } from "./zendesk.js";
-import { runGuarded, asTextResult, type ToolTextResult } from "./confirm.js";
-
-// `confirm.ts` (Task 4) types its results as the strict `ToolTextResult` interface,
-// which is runtime-identical to but not structurally assignable to the SDK's
-// `CallToolResult` (the latter carries an index signature). Coerce at the tool
-// boundary so handlers satisfy the SDK's `ToolCallback` return type.
-const toolResult = (r: ToolTextResult): CallToolResult => r as CallToolResult;
+import { runGuarded, asTextResult } from "./confirm.js";
 
 export type IdType = "number" | "string";
 
@@ -60,7 +53,11 @@ export interface CrudConfig {
 }
 
 function withAdminUrl(subdomain: string, cfg: CrudConfig, id: string | number, result: unknown) {
-  return { ...(result as object), _admin_url: cfg.adminUrl(subdomain, id) };
+  const adminUrl = cfg.adminUrl(subdomain, id);
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return { ...(result as Record<string, unknown>), _admin_url: adminUrl };
+  }
+  return { value: result, _admin_url: adminUrl };
 }
 
 export function registerCrud(server: McpServer, cfg: CrudConfig) {
@@ -74,7 +71,7 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
     async () => {
       const client = cfg.getClient(createZendeskClient());
       const result = await withZendeskError(() => client.list());
-      return toolResult(asTextResult(result));
+      return asTextResult(result);
     }
   );
 
@@ -87,7 +84,7 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
       const { subdomain } = loadConfig();
       const client = cfg.getClient(createZendeskClient());
       const { result } = await withZendeskError(() => client.show(id));
-      return toolResult(asTextResult(withAdminUrl(subdomain, cfg, id, result)));
+      return asTextResult(withAdminUrl(subdomain, cfg, id, result));
     }
   );
 
@@ -101,7 +98,7 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
       const client = cfg.getClient(createZendeskClient());
       const { result } = await withZendeskError(() => client.create(data));
       const id = (result as any)?.id ?? "new";
-      return toolResult(asTextResult(withAdminUrl(subdomain, cfg, id, result)));
+      return asTextResult(withAdminUrl(subdomain, cfg, id, result));
     }
   );
 
@@ -114,21 +111,19 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
     const { subdomain } = loadConfig();
     const client = cfg.getClient(createZendeskClient());
     if (cfg.guardUpdate) {
-      return toolResult(
-        await runGuarded({
-          requireConfirm: require_confirm,
-          action: `update ${cfg.singular} ${id}`,
-          fetchCurrent: () => withZendeskError(() => client.show(id)).then((r) => r.result),
-          proposed: data,
-          execute: () =>
-            withZendeskError(() => client.update(id, data)).then((r) =>
-              withAdminUrl(subdomain, cfg, id, r.result)
-            ),
-        })
-      );
+      return runGuarded({
+        requireConfirm: require_confirm,
+        action: `update ${cfg.singular} ${id}`,
+        fetchCurrent: () => withZendeskError(() => client.show(id)).then((r) => r.result),
+        proposed: data,
+        execute: () =>
+          withZendeskError(() => client.update(id, data)).then((r) =>
+            withAdminUrl(subdomain, cfg, id, r.result)
+          ),
+      });
     }
     const { result } = await withZendeskError(() => client.update(id, data));
-    return toolResult(asTextResult(withAdminUrl(subdomain, cfg, id, result)));
+    return asTextResult(withAdminUrl(subdomain, cfg, id, result));
   });
 
   server.tool(
@@ -138,15 +133,13 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
     async (raw) => {
       const { id, require_confirm } = s.deleteInput.parse(raw);
       const client = cfg.getClient(createZendeskClient());
-      return toolResult(
-        await runGuarded({
-          requireConfirm: require_confirm,
-          action: `delete ${cfg.singular} ${id}`,
-          fetchCurrent: () => withZendeskError(() => client.show(id)).then((r) => r.result),
-          execute: () =>
-            withZendeskError(() => client.delete(id)).then(() => ({ deleted: true, id })),
-        })
-      );
+      return runGuarded({
+        requireConfirm: require_confirm,
+        action: `delete ${cfg.singular} ${id}`,
+        fetchCurrent: () => withZendeskError(() => client.show(id)).then((r) => r.result),
+        execute: () =>
+          withZendeskError(() => client.delete(id)).then(() => ({ deleted: true, id })),
+      });
     }
   );
 }

@@ -1,5 +1,8 @@
 export interface ToolTextResult {
   content: { type: "text"; text: string }[];
+  // The MCP SDK's CallToolResult carries an index signature; matching it here lets
+  // asTextResult()/runGuarded() returns satisfy ToolCallback directly — no per-tool casts.
+  [x: string]: unknown;
 }
 
 export interface GuardOptions {
