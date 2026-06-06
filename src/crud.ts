@@ -16,7 +16,7 @@ export function makeCrudSchemas(idType: IdType) {
   const data = z
     .record(z.any())
     .describe(
-      "The resource object (passthrough). Include the fields Zendesk expects for this object — e.g. title/name, conditions ({all,any} of {field,operator,value}), actions, etc."
+      "The resource's fields (passthrough) — e.g. title/name, conditions ({all,any} of {field,operator,value}), actions, etc. Pass the fields directly; do NOT wrap them in a {<resource>: ...} envelope — the server adds that automatically."
     );
   return {
     listInput: z.object({}),
@@ -96,7 +96,7 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
       const { data } = s.createInput.parse(raw);
       const { subdomain } = loadConfig();
       const client = cfg.getClient(createZendeskClient());
-      const { result } = await withZendeskError(() => client.create(data));
+      const { result } = await withZendeskError(() => client.create({ [cfg.singular]: data }));
       const id = (result as any)?.id ?? "new";
       return asTextResult(withAdminUrl(subdomain, cfg, id, result));
     }
@@ -117,12 +117,12 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
         fetchCurrent: () => withZendeskError(() => client.show(id)).then((r) => r.result),
         proposed: data,
         execute: () =>
-          withZendeskError(() => client.update(id, data)).then((r) =>
+          withZendeskError(() => client.update(id, { [cfg.singular]: data })).then((r) =>
             withAdminUrl(subdomain, cfg, id, r.result)
           ),
       });
     }
-    const { result } = await withZendeskError(() => client.update(id, data));
+    const { result } = await withZendeskError(() => client.update(id, { [cfg.singular]: data }));
     return asTextResult(withAdminUrl(subdomain, cfg, id, result));
   });
 

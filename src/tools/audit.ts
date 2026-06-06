@@ -11,7 +11,7 @@ export const auditLogsInput = z.object({
     .describe("Filter by object type, e.g. 'trigger', 'automation', 'macro', 'view', 'user', 'group'."),
   actor_id: z.string().optional().describe("Filter by the acting user's ID."),
   created_after: z.string().optional().describe("ISO 8601 timestamp; only events at/after this time."),
-  created_before: z.string().optional().describe("ISO 8601 timestamp; only events at/before this time."),
+  created_before: z.string().optional().describe("ISO 8601 timestamp; upper bound of a time range. Must be paired with created_after — Zendesk's audit filter is a range, so created_before alone is ignored as an upper bound."),
 });
 
 export const auditLogsForObjectInput = z.object({
