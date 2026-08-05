@@ -50,6 +50,39 @@ export interface CrudConfig {
   adminUrl: (subdomain: string, id: string | number) => string;
   /** Extra guidance appended to the create/update data description. */
   dataHint?: string;
+  /**
+   * Fields to keep in the `list` response. Listing every object with its full
+   * definition (conditions/actions bodies) blows past the MCP result-size cap
+   * on real accounts, so `list` returns only these identifying fields; callers
+   * use `get` for the full definition. Only keys actually present on an item
+   * are emitted. Defaults to {@link DEFAULT_SUMMARY_KEYS}.
+   */
+  summaryKeys?: string[];
+}
+
+/** Identifying fields kept in `list` responses across every CRUD object type. */
+export const DEFAULT_SUMMARY_KEYS = [
+  "id",
+  "title",
+  "name",
+  "active",
+  "category_id",
+  "position",
+  "default",
+  "updated_at",
+];
+
+/** Project one list item down to its identifying fields (present keys only). */
+function summarize(item: unknown, keys: string[]): unknown {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+  const src = item as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (key in src) out[key] = src[key];
+  }
+  // If none of the summary keys matched, fall back to the raw item so we never
+  // silently drop an object we didn't recognize.
+  return Object.keys(out).length ? out : item;
 }
 
 function withAdminUrl(subdomain: string, cfg: CrudConfig, id: string | number, result: unknown) {
@@ -64,14 +97,23 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
   const s = makeCrudSchemas(cfg.idType);
   const hint = cfg.dataHint ? ` ${cfg.dataHint}` : "";
 
+  const summaryKeys = cfg.summaryKeys ?? DEFAULT_SUMMARY_KEYS;
   server.tool(
     `zda_list_${cfg.plural}`,
-    `List all Zendesk ${cfg.plural}.`,
+    `List all Zendesk ${cfg.plural}. Returns a compact summary of each (${summaryKeys.join(
+      ", "
+    )}) to stay within response-size limits — call zda_get_${cfg.singular} for an item's full definition.`,
     s.listInput.shape,
     async () => {
       const client = cfg.getClient(createZendeskClient());
       const result = await withZendeskError(() => client.list());
-      return asTextResult(result);
+      if (!Array.isArray(result)) return asTextResult(result);
+      return asTextResult({
+        count: result.length,
+        fields: summaryKeys,
+        note: `Compact summary — call zda_get_${cfg.singular} for an item's full definition.`,
+        [cfg.plural]: result.map((item) => summarize(item, summaryKeys)),
+      });
     }
   );
 
