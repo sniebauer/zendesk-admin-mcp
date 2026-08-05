@@ -126,4 +126,53 @@ describe("registerCrud envelopes the body with the singular key", () => {
     await client.close();
     await server.close();
   });
+
+  it("list returns a compact summary (identifying fields only) instead of full definitions", async () => {
+    const heavy = {
+      id: 1,
+      title: "Big trigger",
+      active: true,
+      category_id: 42,
+      // A large body that must NOT appear in the list response:
+      conditions: { all: Array.from({ length: 200 }, (_, i) => ({ field: `f${i}`, operator: "is", value: "x" })) },
+      actions: Array.from({ length: 200 }, (_, i) => ({ field: `a${i}`, value: "y" })),
+    };
+    const fakeSub = {
+      list: async () => [heavy],
+      show: async (id: any) => ({ response: {}, result: { id } }),
+      create: async () => ({ response: {}, result: {} }),
+      update: async () => ({ response: {}, result: {} }),
+      delete: async () => ({}),
+    };
+
+    const server = new McpServer({ name: "test", version: "0.0.0" });
+    registerCrud(server, {
+      singular: "trigger",
+      plural: "triggers",
+      idType: "number",
+      guardUpdate: false,
+      getClient: () => fakeSub as any,
+      adminUrl: () => "https://x.zendesk.com/admin",
+    });
+
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverT);
+    const client = new Client({ name: "t", version: "0.0.0" });
+    await client.connect(clientT);
+
+    const res: any = await client.callTool({ name: "zda_list_triggers", arguments: {} });
+    const text = res.content[0].text as string;
+    const payload = JSON.parse(text);
+
+    expect(payload.count).toBe(1);
+    expect(payload.triggers).toEqual([
+      { id: 1, title: "Big trigger", active: true, category_id: 42 },
+    ]);
+    // The heavy bodies must be stripped out of the list response.
+    expect(text).not.toContain("conditions");
+    expect(text).not.toContain("actions");
+
+    await client.close();
+    await server.close();
+  });
 });
