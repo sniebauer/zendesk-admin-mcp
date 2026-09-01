@@ -185,3 +185,166 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
     }
   );
 }
+
+/** Input schemas for a parent-scoped resource (e.g. a schedule's holidays). */
+export function makeNestedCrudSchemas(parentIdField: string, idType: IdType) {
+  const id = idSchema(idType);
+  const parentId = z.number().int().positive().describe("Parent object's numeric ID");
+  const data = z
+    .record(z.any())
+    .describe(
+      "The resource's fields (passthrough). Pass the fields directly; do NOT wrap them in a {<resource>: ...} envelope — the server adds that automatically."
+    );
+  return {
+    listInput: z.object({ [parentIdField]: parentId }),
+    getInput: z.object({ [parentIdField]: parentId, id }),
+    createInput: z.object({ [parentIdField]: parentId, data }),
+    updateInput: z.object({
+      [parentIdField]: parentId,
+      id,
+      data,
+      require_confirm: z.boolean().default(false),
+    }),
+    deleteInput: z.object({
+      [parentIdField]: parentId,
+      id,
+      require_confirm: z.boolean().default(false),
+    }),
+  };
+}
+
+export interface NestedCrudConfig {
+  /** e.g. "holiday" */
+  singular: string;
+  /** e.g. "holidays" */
+  plural: string;
+  /** The owning resource, e.g. { name: "schedule", idField: "schedule_id" }. */
+  parent: { name: string; idField: string };
+  idType: IdType;
+  guardUpdate: boolean;
+  /** Builds a CrudClient bound to one parent. */
+  getClient: (parentId: number) => CrudClient;
+  adminUrl: (subdomain: string, parentId: number, id: string | number) => string;
+  dataHint?: string;
+  summaryKeys?: string[];
+}
+
+function withNestedAdminUrl(
+  subdomain: string,
+  cfg: NestedCrudConfig,
+  parentId: number,
+  id: string | number,
+  result: unknown
+) {
+  const adminUrl = cfg.adminUrl(subdomain, parentId, id);
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return { ...(result as Record<string, unknown>), _admin_url: adminUrl };
+  }
+  return { value: result, _admin_url: adminUrl };
+}
+
+/**
+ * Sibling of registerCrud for resources nested under a parent
+ * (/schedules/{schedule_id}/holidays/{id}). Kept separate rather than folding a
+ * `parent?` branch into registerCrud so the nine existing flat resources are
+ * provably unaffected; the shared helpers above keep it DRY.
+ */
+export function registerNestedCrud(server: McpServer, cfg: NestedCrudConfig) {
+  const s = makeNestedCrudSchemas(cfg.parent.idField, cfg.idType);
+  const hint = cfg.dataHint ? ` ${cfg.dataHint}` : "";
+  const pid = cfg.parent.idField;
+  const summaryKeys = cfg.summaryKeys ?? DEFAULT_SUMMARY_KEYS;
+
+  server.tool(
+    `zda_list_${cfg.plural}`,
+    `List all Zendesk ${cfg.plural} for one ${cfg.parent.name}. Returns a compact summary of each (${summaryKeys.join(
+      ", "
+    )}) — call zda_get_${cfg.singular} for an item's full definition.`,
+    s.listInput.shape,
+    async (raw) => {
+      const parsed = s.listInput.parse(raw) as Record<string, number>;
+      const client = cfg.getClient(parsed[pid]!);
+      const result = await withZendeskError(() => client.list());
+      if (!Array.isArray(result)) return asTextResult(result);
+      return asTextResult({
+        count: result.length,
+        fields: summaryKeys,
+        [cfg.plural]: result.map((item) => summarize(item, summaryKeys)),
+      });
+    }
+  );
+
+  server.tool(
+    `zda_get_${cfg.singular}`,
+    `Fetch a single Zendesk ${cfg.singular} by ID from its ${cfg.parent.name}.`,
+    s.getInput.shape,
+    async (raw) => {
+      const parsed = s.getInput.parse(raw) as Record<string, any>;
+      const { subdomain } = loadConfig();
+      const client = cfg.getClient(parsed[pid]);
+      const { result } = await withZendeskError(() => client.show(parsed.id));
+      return asTextResult(withNestedAdminUrl(subdomain, cfg, parsed[pid], parsed.id, result));
+    }
+  );
+
+  server.tool(
+    `zda_create_${cfg.singular}`,
+    `Create a new Zendesk ${cfg.singular} on a ${cfg.parent.name}.${hint}`,
+    s.createInput.shape,
+    async (raw) => {
+      const parsed = s.createInput.parse(raw) as Record<string, any>;
+      const { subdomain } = loadConfig();
+      const client = cfg.getClient(parsed[pid]);
+      const { result } = await withZendeskError(() =>
+        client.create({ [cfg.singular]: parsed.data })
+      );
+      const id = (result as any)?.id ?? "new";
+      return asTextResult(withNestedAdminUrl(subdomain, cfg, parsed[pid], id, result));
+    }
+  );
+
+  const updateDesc = cfg.guardUpdate
+    ? `Update an existing Zendesk ${cfg.singular}. GUARDED: call without require_confirm to preview the current state; re-call with require_confirm: true to apply.${hint}`
+    : `Update an existing Zendesk ${cfg.singular}.${hint}`;
+
+  server.tool(`zda_update_${cfg.singular}`, updateDesc, s.updateInput.shape, async (raw) => {
+    const parsed = s.updateInput.parse(raw) as Record<string, any>;
+    const { subdomain } = loadConfig();
+    const client = cfg.getClient(parsed[pid]);
+    const apply = () =>
+      withZendeskError(() => client.update(parsed.id, { [cfg.singular]: parsed.data })).then((r) =>
+        withNestedAdminUrl(subdomain, cfg, parsed[pid], parsed.id, r.result)
+      );
+    if (cfg.guardUpdate) {
+      return runGuarded({
+        requireConfirm: parsed.require_confirm,
+        action: `update ${cfg.singular} ${parsed.id} on ${cfg.parent.name} ${parsed[pid]}`,
+        fetchCurrent: () => withZendeskError(() => client.show(parsed.id)).then((r) => r.result),
+        proposed: parsed.data,
+        execute: apply,
+      });
+    }
+    return asTextResult(await apply());
+  });
+
+  server.tool(
+    `zda_delete_${cfg.singular}`,
+    `Delete a Zendesk ${cfg.singular} from its ${cfg.parent.name}. GUARDED: call without require_confirm to preview the object that would be deleted; re-call with require_confirm: true to apply.`,
+    s.deleteInput.shape,
+    async (raw) => {
+      const parsed = s.deleteInput.parse(raw) as Record<string, any>;
+      const client = cfg.getClient(parsed[pid]);
+      return runGuarded({
+        requireConfirm: parsed.require_confirm,
+        action: `delete ${cfg.singular} ${parsed.id} from ${cfg.parent.name} ${parsed[pid]}`,
+        fetchCurrent: () => withZendeskError(() => client.show(parsed.id)).then((r) => r.result),
+        execute: () =>
+          withZendeskError(() => client.delete(parsed.id)).then(() => ({
+            deleted: true,
+            id: parsed.id,
+            [pid]: parsed[pid],
+          })),
+      });
+    }
+  );
+}
