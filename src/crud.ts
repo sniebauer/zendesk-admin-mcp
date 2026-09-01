@@ -187,7 +187,11 @@ export function registerCrud(server: McpServer, cfg: CrudConfig) {
 }
 
 /** Input schemas for a parent-scoped resource (e.g. a schedule's holidays). */
-export function makeNestedCrudSchemas(parentIdField: string, idType: IdType) {
+export function makeNestedCrudSchemas(
+  parentIdField: string,
+  idType: IdType,
+  listFilters?: z.ZodRawShape
+) {
   const id = idSchema(idType);
   const parentId = z.number().int().positive().describe("Parent object's numeric ID");
   const data = z
@@ -196,7 +200,7 @@ export function makeNestedCrudSchemas(parentIdField: string, idType: IdType) {
       "The resource's fields (passthrough). Pass the fields directly; do NOT wrap them in a {<resource>: ...} envelope — the server adds that automatically."
     );
   return {
-    listInput: z.object({ [parentIdField]: parentId }),
+    listInput: z.object({ [parentIdField]: parentId, ...(listFilters ?? {}) }),
     getInput: z.object({ [parentIdField]: parentId, id }),
     createInput: z.object({ [parentIdField]: parentId, data }),
     updateInput: z.object({
@@ -227,6 +231,12 @@ export interface NestedCrudConfig {
   adminUrl: (subdomain: string, parentId: number, id: string | number) => string;
   dataHint?: string;
   summaryKeys?: string[];
+  /**
+   * Optional query params the `list` tool accepts and forwards to the client's
+   * `list(query)`. Used for server-side filtering the API supports natively
+   * (e.g. holidays take start_date/end_date), so callers don't fetch-and-filter.
+   */
+  listFilters?: z.ZodRawShape;
 }
 
 function withNestedAdminUrl(
@@ -250,7 +260,7 @@ function withNestedAdminUrl(
  * provably unaffected; the shared helpers above keep it DRY.
  */
 export function registerNestedCrud(server: McpServer, cfg: NestedCrudConfig) {
-  const s = makeNestedCrudSchemas(cfg.parent.idField, cfg.idType);
+  const s = makeNestedCrudSchemas(cfg.parent.idField, cfg.idType, cfg.listFilters);
   const hint = cfg.dataHint ? ` ${cfg.dataHint}` : "";
   const pid = cfg.parent.idField;
   const summaryKeys = cfg.summaryKeys ?? DEFAULT_SUMMARY_KEYS;
@@ -262,9 +272,15 @@ export function registerNestedCrud(server: McpServer, cfg: NestedCrudConfig) {
     )}) — call zda_get_${cfg.singular} for an item's full definition.`,
     s.listInput.shape,
     async (raw) => {
-      const parsed = s.listInput.parse(raw) as Record<string, number>;
-      const client = cfg.getClient(parsed[pid]!);
-      const result = await withZendeskError(() => client.list());
+      const parsed = s.listInput.parse(raw) as Record<string, any>;
+      const client = cfg.getClient(parsed[pid]);
+      const filters: Record<string, unknown> = {};
+      for (const key of Object.keys(cfg.listFilters ?? {})) {
+        if (parsed[key] !== undefined) filters[key] = parsed[key];
+      }
+      // Stay undefined when unfiltered so the URL builder omits the query string.
+      const query = Object.keys(filters).length ? filters : undefined;
+      const result = await withZendeskError(() => client.list(query));
       if (!Array.isArray(result)) return asTextResult(result);
       return asTextResult({
         count: result.length,

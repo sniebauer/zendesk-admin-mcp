@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -326,5 +327,78 @@ describe("registerNestedCrud", () => {
 
     await client.close();
     await server.close();
+  });
+});
+
+describe("registerNestedCrud list filters", () => {
+  const prev = { ...process.env };
+  beforeAll(() => {
+    process.env.ZENDESK_SUBDOMAIN = "x";
+    process.env.ZENDESK_EMAIL = "test@example.com";
+    process.env.ZENDESK_API_TOKEN = "token";
+  });
+  afterAll(() => {
+    for (const key of ["ZENDESK_SUBDOMAIN", "ZENDESK_EMAIL", "ZENDESK_API_TOKEN"] as const) {
+      if (prev[key] === undefined) delete process.env[key];
+      else process.env[key] = prev[key];
+    }
+  });
+
+  async function callList(args: Record<string, unknown>) {
+    const listArgs: unknown[][] = [];
+    const fakeSub = {
+      list: async (...a: unknown[]) => {
+        listArgs.push(a);
+        return [];
+      },
+      show: async (id: any) => ({ response: {}, result: { id } }),
+      create: async () => ({ response: {}, result: {} }),
+      update: async () => ({ response: {}, result: {} }),
+      delete: async () => ({}),
+    };
+
+    const server = new McpServer({ name: "test", version: "0.0.0" });
+    registerNestedCrud(server, {
+      singular: "holiday",
+      plural: "holidays",
+      parent: { name: "schedule", idField: "schedule_id" },
+      idType: "number",
+      guardUpdate: false,
+      getClient: () => fakeSub as any,
+      adminUrl: () => "https://x.zendesk.com/admin",
+      listFilters: {
+        start_date: z.string().optional(),
+        end_date: z.string().optional(),
+      },
+    });
+
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverT);
+    const client = new Client({ name: "t", version: "0.0.0" });
+    await client.connect(clientT);
+    const res: any = await client.callTool({ name: "zda_list_holidays", arguments: args });
+    await client.close();
+    await server.close();
+    return { listArgs, res };
+  }
+
+  it("forwards declared filters to the client's list()", async () => {
+    const { listArgs } = await callList({
+      schedule_id: 7,
+      start_date: "2027-01-01",
+      end_date: "2027-12-31",
+    });
+    expect(listArgs[0]?.[0]).toEqual({ start_date: "2027-01-01", end_date: "2027-12-31" });
+  });
+
+  it("passes undefined when no filters are supplied, so the URL stays clean", async () => {
+    const { listArgs } = await callList({ schedule_id: 7 });
+    expect(listArgs[0]?.[0]).toBeUndefined();
+  });
+
+  it("rejects a call missing the parent id without reaching the client", async () => {
+    const { listArgs, res } = await callList({ start_date: "2027-01-01" });
+    expect(res.isError).toBe(true);
+    expect(listArgs).toEqual([]);
   });
 });

@@ -148,7 +148,8 @@ export function schedulesClient(cfg: ZendeskConfig): CrudClient {
 /** CrudClient adapter for one schedule's holidays. */
 export function holidaysClient(cfg: ZendeskConfig, scheduleId: number): CrudClient {
   return {
-    list: async () => listHolidays(cfg, scheduleId),
+    list: async (query?: { start_date?: string; end_date?: string }) =>
+      listHolidays(cfg, scheduleId, query),
     show: async (id: number) => {
       const body = await scheduleRequest<{ holiday: unknown }>(
         cfg,

@@ -70,3 +70,56 @@ describe("ZendeskHttpError", () => {
     expect(parseZendeskError(err).message).toMatch(/check ZENDESK_API_TOKEN/);
   });
 });
+
+import { setScheduleHoursInput, setHolidaysInput } from "../src/tools/schedules.js";
+
+describe("setScheduleHoursInput", () => {
+  it("requires schedule_id and hours, defaulting require_confirm to false", () => {
+    expect(() => setScheduleHoursInput.parse({ hours: {} })).toThrow();
+    expect(
+      setScheduleHoursInput.parse({
+        schedule_id: 1,
+        hours: { monday: [{ start: "09:00", end: "17:00" }] },
+      })
+    ).toEqual({
+      schedule_id: 1,
+      hours: { monday: [{ start: "09:00", end: "17:00" }] },
+      require_confirm: false,
+    });
+  });
+
+  it("rejects an unknown day key", () => {
+    expect(() =>
+      setScheduleHoursInput.parse({
+        schedule_id: 1,
+        hours: { funday: [{ start: "09:00", end: "17:00" }] },
+      })
+    ).toThrow();
+  });
+});
+
+describe("setHolidaysInput", () => {
+  const holiday = { name: "New Year's Day", start_date: "2027-01-01", end_date: "2027-01-01" };
+
+  it("requires a non-empty schedule_ids and holidays list", () => {
+    expect(() => setHolidaysInput.parse({ schedule_ids: [], holidays: [holiday] })).toThrow();
+    expect(() => setHolidaysInput.parse({ schedule_ids: [1], holidays: [] })).toThrow();
+  });
+
+  it("enforces ISO YYYY-MM-DD dates", () => {
+    expect(() =>
+      setHolidaysInput.parse({
+        schedule_ids: [1],
+        holidays: [{ ...holiday, start_date: "01/01/2027" }],
+      })
+    ).toThrow();
+  });
+
+  it("accepts a valid batch and defaults require_confirm to false", () => {
+    expect(setHolidaysInput.parse({ schedule_ids: [1, 2], holidays: [holiday] })).toEqual({
+      schedule_ids: [1, 2],
+      holidays: [holiday],
+      require_confirm: false,
+    });
+  });
+});
