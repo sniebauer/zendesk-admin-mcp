@@ -1,6 +1,6 @@
 {
   "name": "@sniebauer/zendesk-admin-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Admin/config MCP server for Zendesk Support — triggers, automations, macros, views, SLAs, groups, fields, forms, webhooks, audit logs. For Claude Desktop and Claude Code.",
   "type": "module",
   "bin": {

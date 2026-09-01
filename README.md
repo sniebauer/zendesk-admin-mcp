@@ -2,7 +2,7 @@
 
 Local [MCP](https://modelcontextprotocol.io/) server for **Zendesk admin/config** work — the companion to [`@sniebauer/zendesk-mcp`](https://github.com/sniebauer/zendesk-mcp) (day-to-day support).
 
-54 tools: full CRUD on triggers, automations, macros, views, SLA policies, groups, ticket fields, ticket forms, and webhooks; a read-only audit log; and a read-only inventory of account settings, installed apps, brands, agent roles, tags, and locales.
+66 tools: full CRUD on triggers, automations, macros, views, SLA policies, groups, ticket fields, ticket forms, webhooks, and schedules (business hours) with their holidays; a read-only audit log; and a read-only inventory of account settings, installed apps, brands, agent roles, tags, and locales.
 
 Destructive and live-routing writes (deletes, and updates to triggers/automations/SLAs/trigger-order) are **guarded** with a preview-then-confirm step.
 
@@ -49,11 +49,11 @@ This package reads the **same** `~/.config/zendesk-mcp/config.json` as `@sniebau
 
 ## The `require_confirm` guard
 
-Guarded operations — every `delete`, every `update` to **triggers / automations / SLA policies**, and `zda_reorder_triggers` — do not execute on the first call. Instead they return the object's **current state** (and, for updates, the proposed change) and ask you to re-invoke with `require_confirm: true`. This forces a deliberate two-step on anything that can break live ticket flow.
+Guarded operations — every `delete`, every `update` to **triggers / automations / SLA policies / schedules**, plus `zda_reorder_triggers`, `zda_set_schedule_hours`, and `zda_set_holidays` — do not execute on the first call. Instead they return the object's **current state** (and, for updates, the proposed change) and ask you to re-invoke with `require_confirm: true`. This forces a deliberate two-step on anything that can break live ticket flow.
 
 Creates and updates to lower-risk objects (macros, views, groups, fields, forms, webhooks) execute directly.
 
-## Tools (54)
+## Tools (66)
 
 **Business rules — full CRUD** (`list` / `get` / `create` / `update` / `delete` each)
 - `zda_*_trigger(s)` · `zda_*_automation(s)` · `zda_*_macro(s)` · `zda_*_view(s)` · `zda_*_sla_policy/policies`
@@ -61,6 +61,11 @@ Creates and updates to lower-risk objects (macros, views, groups, fields, forms,
 
 **Ticketing config — full CRUD**
 - `zda_*_group(s)` · `zda_*_ticket_field(s)` · `zda_*_ticket_form(s)` · `zda_*_webhook(s)`
+
+**Schedules & holidays — full CRUD**
+- `zda_*_schedule(s)` · `zda_*_holiday(s)` — holiday tools take a `schedule_id`; `zda_list_holidays` also accepts `start_date`/`end_date` for a server-side filter
+- `zda_set_schedule_hours` — set weekly business hours with day names and `HH:MM` instead of Zendesk's minute offsets (guarded)
+- `zda_set_holidays` — apply a holiday calendar to several schedules at once; idempotent, skips holidays already present (guarded)
 
 **Audit (read-only, Enterprise)**
 - `zda_audit_logs` — who changed what, filterable by type/actor/time
@@ -83,6 +88,8 @@ npm run smoke     # reads-only end-to-end (requires credentials)
 - **Conditions DSL is passthrough.** Create/update accept the object's full structure (e.g. `conditions: {all,any}`); Zendesk validates semantics.
 - **Credentials precedence.** Env vars override the shared config file.
 - **Smoke test is reads-only.** It never creates or deletes config.
+- **Business hours are plan-gated.** Schedules need a Zendesk plan that includes business hours; accounts without one get a clear message rather than a bare 403.
+- **Schedule hours can't be set at create time.** Zendesk accepts only `name` and `time_zone` on create — use `zda_set_schedule_hours` afterward.
 
 ## License
 
