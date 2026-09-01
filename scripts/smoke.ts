@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { createZendeskClient, withZendeskError, loadConfig } from "../src/zendesk.js";
 import { fetchAuditLogs } from "../src/audit.js";
+import { schedulesClient, listHolidays } from "../src/schedules.js";
 
 async function main() {
   const cfg = loadConfig();
@@ -31,6 +32,19 @@ async function main() {
     console.log(`  -> audit_logs returned: ${n}`);
   } catch (err) {
     console.log(`  -> audit logs unavailable (expected on non-Enterprise): ${(err as Error).message}`);
+  }
+
+  console.log("5. list schedules ...");
+  try {
+    const schedules = await withZendeskError(() => schedulesClient(cfg).list());
+    console.log(`  -> schedules: ${schedules.length}`);
+    const first = schedules[0] as { id: number; name: string } | undefined;
+    if (first) {
+      const holidays = await withZendeskError(() => listHolidays(cfg, first.id));
+      console.log(`  -> holidays on '${first.name}': ${holidays.length}`);
+    }
+  } catch (err) {
+    console.log(`  -> schedules unavailable: ${(err as Error).message}`);
   }
 
   console.log("\nSmoke test passed (reads only — no writes performed).");
