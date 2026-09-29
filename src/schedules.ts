@@ -1,32 +1,12 @@
 import type { ZendeskConfig } from "./zendesk.js";
-import { assertZendeskHost, basicAuthHeader } from "./audit.js";
+import { zendeskRequest } from "./http.js";
 import type { CrudClient } from "./crud.js";
 import type { Interval } from "./intervals.js";
 
+// Re-exported so existing importers keep working after the move to src/http.ts.
+export { ZendeskHttpError } from "./http.js";
+
 const API_BASE = "/api/v2/business_hours/schedules";
-
-/**
- * Shaped to match what node-zendesk throws, so parseZendeskError/withZendeskError
- * can consume it unchanged — which is how this path inherits the single 429 retry.
- * src/audit.ts predates this and calls fetch directly; it is intentionally left alone.
- */
-export class ZendeskHttpError extends Error {
-  override name = "ZendeskHttpError";
-  statusCode: number;
-  result: { error: string; description?: string };
-  headers: Record<string, string>;
-
-  constructor(
-    statusCode: number,
-    result: { error: string; description?: string },
-    headers: Record<string, string>
-  ) {
-    super(`${statusCode} ${result.error}`);
-    this.statusCode = statusCode;
-    this.result = result;
-    this.headers = headers;
-  }
-}
 
 export function schedulesUrl(subdomain: string, id?: number): string {
   const tail = id === undefined ? "" : `/${id}`;
@@ -53,54 +33,16 @@ export function holidaysUrl(
 }
 
 /** Business hours are plan-gated; make that legible instead of a bare 403/404. */
-function planHint(status: number): string | undefined {
-  return status === 403 || status === 404
-    ? "If this persists, confirm that Business Hours (schedules) is included in your Zendesk plan."
-    : undefined;
-}
+const PLAN_HINT =
+  "If this persists, confirm that Business Hours (schedules) is included in your Zendesk plan.";
 
-export async function scheduleRequest<T>(
+export function scheduleRequest<T>(
   cfg: ZendeskConfig,
   method: string,
   url: string,
   body?: unknown
 ): Promise<T> {
-  assertZendeskHost(new URL(url), cfg.subdomain);
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: basicAuthHeader(cfg.email, cfg.token),
-      Accept: "application/json",
-      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-
-  if (!res.ok) {
-    const headers: Record<string, string> = {};
-    res.headers.forEach((v, k) => {
-      headers[k] = v;
-    });
-    const text = await res.text().catch(() => "");
-    let error = res.statusText || "Error";
-    let description = text.slice(0, 300) || undefined;
-    try {
-      const parsed = JSON.parse(text) as { error?: unknown; description?: string };
-      if (typeof parsed.error === "string") error = parsed.error;
-      else if (parsed.error && typeof parsed.error === "object") {
-        error = (parsed.error as { title?: string }).title ?? error;
-      }
-      if (parsed.description) description = parsed.description;
-    } catch {
-      // Non-JSON body; keep the truncated text as the description.
-    }
-    const hint = planHint(res.status);
-    if (hint) description = description ? `${description} — ${hint}` : hint;
-    throw new ZendeskHttpError(res.status, { error, description }, headers);
-  }
-
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return zendeskRequest<T>(cfg, method, url, body, { planHint: PLAN_HINT });
 }
 
 /** CrudClient adapter for schedules, so registerCrud can drive them unchanged. */

@@ -5,6 +5,7 @@ import { registerTicketingTools } from "./tools/ticketing.js";
 import { registerAuditTools } from "./tools/audit.js";
 import { registerInventoryTools } from "./tools/inventory.js";
 import { registerScheduleTools } from "./tools/schedules.js";
+import { registerRoutingTools } from "./tools/routing.js";
 
 // Read the real version at runtime rather than hardcoding it — a stale
 // serverInfo.version is worse than none, since it's the field you inspect to
@@ -25,6 +26,7 @@ export function createServer(): McpServer {
   registerAuditTools(server);
   registerInventoryTools(server);
   registerScheduleTools(server);
+  registerRoutingTools(server);
 
   return server;
 }

@@ -2,7 +2,7 @@
 
 Local [MCP](https://modelcontextprotocol.io/) server for **Zendesk admin/config** work — the companion to [`@sniebauer/zendesk-mcp`](https://github.com/sniebauer/zendesk-mcp) (day-to-day support).
 
-66 tools: full CRUD on triggers, automations, macros, views, SLA policies, groups, ticket fields, ticket forms, webhooks, and schedules (business hours) with their holidays; a read-only audit log; and a read-only inventory of account settings, installed apps, brands, agent roles, tags, and locales.
+73 tools: full CRUD on triggers, automations, macros, views, SLA policies, groups, ticket fields, ticket forms, webhooks, and schedules (business hours) with their holidays; skills-based routing (who holds which skills, coverage if an agent is out, and guarded agent skill changes); a read-only audit log; and a read-only inventory of account settings, installed apps, brands, agent roles, tags, and locales.
 
 Destructive and live-routing writes (deletes, and updates to triggers/automations/SLAs/trigger-order) are **guarded** with a preview-then-confirm step.
 
@@ -49,11 +49,11 @@ This package reads the **same** `~/.config/zendesk-mcp/config.json` as `@sniebau
 
 ## The `require_confirm` guard
 
-Guarded operations — every `delete`, every `update` to **triggers / automations / SLA policies / schedules**, plus `zda_reorder_triggers`, `zda_set_schedule_hours`, and `zda_set_holidays` — do not execute on the first call. Instead they return the object's **current state** (and, for updates, the proposed change) and ask you to re-invoke with `require_confirm: true`. This forces a deliberate two-step on anything that can break live ticket flow.
+Guarded operations — every `delete`, every `update` to **triggers / automations / SLA policies / schedules**, plus `zda_reorder_triggers`, `zda_set_schedule_hours`, `zda_set_holidays`, and `zda_update_agent_skills` — do not execute on the first call. Instead they return the object's **current state** (and, for updates, the proposed change) and ask you to re-invoke with `require_confirm: true`. This forces a deliberate two-step on anything that can break live ticket flow.
 
 Creates and updates to lower-risk objects (macros, views, groups, fields, forms, webhooks) execute directly.
 
-## Tools (66)
+## Tools (73)
 
 **Business rules — full CRUD** (`list` / `get` / `create` / `update` / `delete` each)
 - `zda_*_trigger(s)` · `zda_*_automation(s)` · `zda_*_macro(s)` · `zda_*_view(s)` · `zda_*_sla_policy/policies`
@@ -67,6 +67,13 @@ Creates and updates to lower-risk objects (macros, views, groups, fields, forms,
 - `zda_set_schedule_hours` — set weekly business hours with day names and `HH:MM` instead of Zendesk's minute offsets (guarded)
 - `zda_set_holidays` — apply a holiday calendar to several schedules at once; idempotent, skips holidays already present (guarded)
 
+**Skills-based routing (Enterprise)** — Zendesk's API calls skill types *attributes* and skills *attribute values*
+- `zda_list_routing_attributes` — skill types with their skills · `zda_get_routing_attribute` · `zda_list_attribute_values`
+- `zda_list_agent_skills` — the skills one agent holds, with priority
+- `zda_list_skill_agents` — every agent who holds one skill
+- `zda_skill_coverage` — for each skill an agent holds, who else holds it, thinnest first ("what's thin if they're out?")
+- `zda_update_agent_skills` — add/remove skills for up to 100 agents at once; leaves unlisted skills and existing priorities alone (guarded)
+
 **Audit (read-only, Enterprise)**
 - `zda_audit_logs` — who changed what, filterable by type/actor/time
 - `zda_audit_logs_for_object` — all events for one object
@@ -77,7 +84,7 @@ Creates and updates to lower-risk objects (macros, views, groups, fields, forms,
 ## Verify
 
 ```bash
-npm test          # unit tests (schemas, error wrapper, guard, audit URL builder)
+npm test          # unit tests (schemas, error wrapper, guard, URL builders, routing helpers)
 npm run smoke     # reads-only end-to-end (requires credentials)
 ```
 
@@ -89,6 +96,10 @@ npm run smoke     # reads-only end-to-end (requires credentials)
 - **Credentials precedence.** Env vars override the shared config file.
 - **Smoke test is reads-only.** It never creates or deletes config.
 - **Business hours are plan-gated.** Schedules need a Zendesk plan that includes business hours; accounts without one get a clear message rather than a bare 403.
+- **Skills-based routing is plan- and permission-gated.** It needs Zendesk Enterprise, and the caller must be an admin or hold a custom role that can manage skills; otherwise you get a clear message rather than a bare 403.
+- **`zda_list_skill_agents` and `zda_skill_coverage` use an undocumented endpoint.** `GET /routing/attributes/{id}/values/{value_id}/agents` backs the admin "Agents with skill" panel but isn't in the public API reference, so it carries no stability guarantee. Coverage fails soft per skill if it ever stops answering.
+- **Skill changes run as a background job.** `zda_update_agent_skills` waits up to ~10s per job and returns the job status; a job still `working` after that hasn't failed, it just hasn't finished.
+- **Routing data has no region, timezone, or group.** Coverage returns holder identities only — join location yourself (or model it as a skill type).
 - **Schedule hours can't be set at create time.** Zendesk accepts only `name` and `time_zone` on create — use `zda_set_schedule_hours` afterward.
 
 ## License

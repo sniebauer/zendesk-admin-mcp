@@ -2,6 +2,14 @@ import "dotenv/config";
 import { createZendeskClient, withZendeskError, loadConfig } from "../src/zendesk.js";
 import { fetchAuditLogs } from "../src/audit.js";
 import { schedulesClient, listHolidays } from "../src/schedules.js";
+import {
+  routingRequest,
+  attributesUrl,
+  agentSkillsUrl,
+  skillAgentsUrl,
+  collectPages,
+  groupSkillTypes,
+} from "../src/routing.js";
 
 async function main() {
   const cfg = loadConfig();
@@ -45,6 +53,37 @@ async function main() {
     }
   } catch (err) {
     console.log(`  -> schedules unavailable: ${(err as Error).message}`);
+  }
+
+  console.log("6. skills-based routing ...");
+  try {
+    const body: any = await withZendeskError(() =>
+      routingRequest(cfg, "GET", attributesUrl(cfg.subdomain, { includeValues: true }))
+    );
+    const { attributes: attrs, truncated } = groupSkillTypes(body);
+    const nSkills = attrs.reduce((n, a) => n + a.attribute_values.length, 0);
+    console.log(`  -> skill types: ${attrs.length}, skills: ${nSkills}${truncated ? " (more pages not followed)" : ""}`);
+    const attr = attrs.find((a) => a.attribute_values?.length);
+    const value = attr?.attribute_values[0];
+    if (value) {
+      const holders = await collectPages<any>({
+        firstUrl: skillAgentsUrl(cfg.subdomain, attr.id, value.id),
+        key: "users",
+        subdomain: cfg.subdomain,
+        getPage: (url) => withZendeskError(() => routingRequest(cfg, "GET", url)),
+      });
+      console.log(`  -> holders of '${attr.name} / ${value.name}' (undocumented /agents): ${holders.items.length}${holders.truncated ? "+" : ""}`);
+      const holder = holders.items[0];
+      if (holder) {
+        const skills: any = await withZendeskError(() =>
+          routingRequest(cfg, "GET", agentSkillsUrl(cfg.subdomain, holder.id))
+        );
+        const first = skills.attribute_values?.[0];
+        console.log(`  -> skills held by one holder: ${skills.attribute_values?.length ?? "?"} (fields: ${first ? Object.keys(first).join(", ") : "-"})`);
+      }
+    }
+  } catch (err) {
+    console.log(`  -> skills-based routing unavailable: ${(err as Error).message}`);
   }
 
   console.log("\nSmoke test passed (reads only — no writes performed).");

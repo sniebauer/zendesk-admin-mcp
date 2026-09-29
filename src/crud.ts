@@ -73,7 +73,7 @@ export const DEFAULT_SUMMARY_KEYS = [
 ];
 
 /** Project one list item down to its identifying fields (present keys only). */
-function summarize(item: unknown, keys: string[]): unknown {
+export function summarize(item: unknown, keys: string[]): unknown {
   if (!item || typeof item !== "object" || Array.isArray(item)) return item;
   const src = item as Record<string, unknown>;
   const out: Record<string, unknown> = {};

@@ -1,7 +1,7 @@
 {
   "name": "@sniebauer/zendesk-admin-mcp",
-  "version": "0.2.1",
-  "description": "Admin/config MCP server for Zendesk Support — triggers, automations, macros, views, SLAs, groups, fields, forms, webhooks, schedules/holidays, audit logs. For Claude Desktop and Claude Code.",
+  "version": "0.3.0",
+  "description": "Admin/config MCP server for Zendesk Support — triggers, automations, macros, views, SLAs, groups, fields, forms, webhooks, schedules/holidays, skills-based routing, audit logs. For Claude Desktop and Claude Code.",
   "type": "module",
   "bin": {
     "zendesk-admin-mcp": "dist/index.js"
@@ -29,6 +29,7 @@
     "zendesk-admin",
     "business-hours",
     "schedules",
+    "skills-based-routing",
     "claude",
     "claude-desktop",
     "claude-code"
